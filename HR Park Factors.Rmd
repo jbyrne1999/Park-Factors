@@ -1,0 +1,77 @@
+---
+title: "Park Factors (HRs)"
+author: "Jack Byrne"
+date: "5/24/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+```
+
+```{r import}
+library(dplyr)
+library(knitr)
+setwd("C:/Users/Jack/Desktop/School Stuff/Gatemen Baseball/Park Factors")
+df <- read.csv("ccbl_plays.csv")
+```
+
+Typically, computing park factors relies on runs per game.  When it's done for home runs, you can do home runs per game, but when you also throw in batter handedness, we need to adjust for that.  We adjust for that by not using per game metrics because lineups contain a different number of lefties and righties.  To adjust for this, I used home runs per plate appearance.  The typical formula for park factors is
+\begin{equation}
+\frac{\frac{homeRS+homeRA}{homeGames}}{\frac{roadRS+roadRA}{roadGames}}
+\end{equation}
+so using home runs and per plate appearance numbers, equation 2 shows the formula I used for each team and handedness combination.
+\begin{equation}
+\frac{\frac{HomeHRsHit + HomeHRsAllowed}{HomePAs}}{\frac{RoadHRsHit + RoadHRsAllowed}{RoadPAs}}
+\end{equation}
+
+I also used the Other Parks Corrector from baseball reference.  It makes corrections for the fact that the other road parks' total difference from the league average is offset by the park rating of the club that is being rated.  You can read more about Baseball Reference's park factor calculation here: https://www.baseball-reference.com/about/parkadjust.shtml
+
+```{r f}
+# mark each HR hit
+df <- mutate(df, hr = grepl("home run", Play, fixed = T))
+# create a counter for plate appearences
+df <- mutate(df, PA = 1)
+# isolate home runs
+hrs <- filter(df, hr==T)
+
+# calculate number of PAs for each home team and handedness combination
+HomePAs <- df %>%
+  group_by(HomeTeam, B) %>%
+  summarise(hPAs = sum(PA))
+# same for away team
+AwayPAs <- df %>%
+  group_by(AwayTeam, B) %>%
+  summarise(rPAs = sum(PA))
+# calculate number of HRs hit for each home team and handedness combination
+homes <- hrs %>%
+  group_by(HomeTeam, B) %>%
+  summarise(homeHRs = sum(hr))
+# same for away team
+roads <-hrs %>%
+  group_by(AwayTeam, B) %>%
+  summarise(roadHRs = sum(hr))
+# combine to one dataframe
+final <- cbind(homes, roads, HomePAs, AwayPAs)
+final <- final[,c(1,2,3,6,9,12)]
+colnames(final)[1] <- "Team"
+colnames(final)[2] <- "Bats"
+
+# do the initial calculation (Equation 2)
+final <- mutate(final, ParkFactorHR = (homeHRs/hPAs)/(roadHRs/rPAs))
+# calculate OPC
+final <- mutate(final, adjustment = nrow(final)/(nrow(final)-1+ParkFactorHR))
+# encorporate OPC into calculation
+final <- mutate(final, adjParkFactorHR = round(100*(ParkFactorHR*adjustment),0))
+
+kable(final)
+
+shortFinal <- final[,c(1,2,9)]
+kable(shortFinal)
+
+write.csv(final, "C:/Users/Jack/Desktop/School Stuff/Gatemen Baseball/Park Factors/handednessParkFactorsHR.csv")
+```
